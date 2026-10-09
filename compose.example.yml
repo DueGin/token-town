@@ -1,0 +1,38 @@
+# 和 Sub2API 部署在同一台机器：复制为 compose.yml，并在同目录的 .env 里设置
+#   TOWN_SECRET=至少 32 个字符的随机串（openssl rand -base64 36）
+#   ADMIN_PASSWORD=控制后台密码
+# 然后 docker compose up -d --build。数据源也可以留空，启动后在 /admin 里填写。
+services:
+  token-town:
+    build: .
+    container_name: token-town
+    restart: unless-stopped
+    ports:
+      # 只绑本机，由 NGINX 等反向代理对外提供 HTTPS
+      - "127.0.0.1:3200:3200"
+    environment:
+      TOWN_SECRET: ${TOWN_SECRET:?请在 .env 里设置 TOWN_SECRET}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?请在 .env 里设置 ADMIN_PASSWORD}
+      # 在 HTTPS 反向代理后面时打开：会话 Cookie 只走 HTTPS，并信任 X-Forwarded-* 头
+      COOKIE_SECURE: "true"
+      TRUST_PROXY: "true"
+      TZ: Asia/Shanghai
+      # 可选：首次启动时预填 Sub2API 数据源（建议用只读账号，见 README）；之后以后台配置为准
+      SUB2API_DATABASE_HOST: ${SUB2API_DATABASE_HOST:-}
+      SUB2API_DATABASE_PORT: ${SUB2API_DATABASE_PORT:-5432}
+      SUB2API_DATABASE_DBNAME: ${SUB2API_DATABASE_DBNAME:-sub2api}
+      SUB2API_DATABASE_USER: ${SUB2API_DATABASE_USER:-}
+      SUB2API_DATABASE_PASSWORD: ${SUB2API_DATABASE_PASSWORD:-}
+    volumes:
+      - token-town-data:/app/data
+    networks:
+      - sub2api
+
+volumes:
+  token-town-data:
+
+networks:
+  sub2api:
+    # Sub2API 的 Compose 网络名，按实际情况修改（docker network ls 查看）
+    name: sub2api_sub2api-network
+    external: true
