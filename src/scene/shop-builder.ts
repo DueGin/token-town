@@ -23,6 +23,7 @@ import { formatTokens } from '@/lib/format'
 import { getLoadedLogo } from '@/lib/lab-logos'
 import { createRng, pick, range, type Rng } from '@/lib/rng'
 import type { LabShop } from '@/lib/town-data'
+import { ChimneySmoke } from '@/scene/chimney-smoke'
 import type { LabStyle, Ornament } from '@/scene/lab-styles'
 import { LOT_D, LOT_W, SIDEWALK_H, type LotSlot } from '@/scene/layout'
 import {
@@ -37,6 +38,7 @@ import {
   type TownBuckets,
 } from '@/scene/props'
 import { RocketRig } from '@/scene/rocket'
+import { WhaleFountain } from '@/scene/whale-fountain'
 import { planShop, Polyline, queueLayout, type QueueLayout, type ShopPlan } from '@/scene/shop-layout'
 import { createGraffitiTexture, createPlaqueTexture, createSignTexture } from '@/scene/textures'
 
@@ -72,6 +74,10 @@ export interface BuiltShop {
   glowMaterials: { material: MeshStandardMaterial; weight: number }[]
   /** 屋顶会定时发射的火箭（xAI 店），其他店为 null。 */
   rocket: RocketRig | null
+  /** 屋顶烟囱冒出的烟（Anthropic 店），其他店为 null。 */
+  smoke: ChimneySmoke | null
+  /** 屋顶鲸鱼背上的喷泉（DeepSeek 店），其他店为 null。 */
+  fountain: WhaleFountain | null
   /** 实时数据更新时重画门旁挂牌上的本周用量；文字没变就不重画。 */
   refreshPlaque(shop: LabShop): void
   dispose(): void
@@ -105,7 +111,7 @@ const ORNAMENT_H: Record<Ornament, number> = {
   garden: 2.2,
   chimney: 1.2,
   blocks: 2.3,
-  whale: 2.8,
+  whale: 4,
   lanterns: 0,
   moon: 5.5,
   dish: 2.6,
@@ -173,6 +179,10 @@ interface Ctx extends TownBuckets {
   rng: Rng
   /** 屋顶火箭的发射台台面中心；只有 rocket 装饰会设置。 */
   rocketPad?: Vector3
+  /** 烟囱帽顶面中心；只有 chimney 装饰会设置。 */
+  chimneyMouth?: Vector3
+  /** 鲸背上的出水孔；只有 whale 装饰会设置。 */
+  blowhole?: Vector3
   style: LabStyle
   plan: ShopPlan
   ox: number
@@ -692,12 +702,14 @@ function buildOrnament(c: Ctx, deck: Deck): number {
       const h = y - top + 1.2
       solid.boxOn(0.9, h, 0.9, cx, top, cz2, '#8a4b36')
       solid.boxOn(1.1, 0.18, 1.1, cx, top + h, cz2, '#5a3a2c')
-      const puffs: [number, number, number, number][] = [
-        [0.35, 0.1, 0.6, 0],
-        [0.45, 0.4, 1.2, 0.1],
-        [0.55, 0.8, 1.9, 0.2],
-      ]
-      for (const [r, dx, dy, dz] of puffs) solid.custom('ico1', ico1, r, r * 0.8, r, cx + dx, top + h + dy, cz2 + dz, '#e6e2dc')
+      // 烟囱是静态的；冒出的烟会缓缓上升飘散，交给 ChimneySmoke 单独建
+      c.chimneyMouth = v(cx, top + h + 0.18, cz2)
+      // 烟囱四角各一盏暖光小灯，夜晚照亮屋顶
+      for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+          glow.blob(0.08, cx + sx * 0.6, top + h + 0.2, cz2 + sz * 0.6, '#ffd89a')
+        }
+      }
       break
     }
     case 'blocks': {
@@ -705,6 +717,10 @@ function buildOrnament(c: Ctx, deck: Deck): number {
       solid.boxOn(1.2, 1.2, 1.2, x + 0.7, y, z - 0.1, '#ea4335', { rotY: 0.2 })
       solid.boxOn(1.1, 1.1, 1.1, x, y + 1.2, z, '#fbbc05', { rotY: 0.35 })
       solid.boxOn(1.0, 1.0, 1.0, x + 1.4, y, z + 1.2, '#34a853', { rotY: -0.4 })
+      // 方块之间补一圈暖光小灯球
+      glow.blob(0.09, x - 0.7, y + 1.3, z, '#ffe8b0')
+      glow.blob(0.09, x + 0.7, y + 1.3, z - 0.1, '#ffe8b0')
+      glow.blob(0.09, x + 1.4, y + 1.1, z + 1.2, '#ffe8b0')
       break
     }
     case 'whale': {
@@ -716,9 +732,11 @@ function buildOrnament(c: Ctx, deck: Deck): number {
       for (const s of [-1, 1]) solid.box(0.9, 0.08, 0.5, x + 2.9, by + 0.55, z + s * 0.35, body, { rotY: -s * 0.5, rotZ: 0.5 })
       solid.blob(0.1, x - 1.3, by + 0.15, z + 0.85, '#141414')
       solid.blob(0.1, x - 1.3, by + 0.15, z - 0.85, '#141414')
-      solid.cylinder(0.08, 0.14, 1.0, x - 0.6, by + 0.8, z, '#bfe3ff', 6)
-      solid.custom('ico1', ico1, 0.3, 0.2, 0.3, x - 0.6, by + 1.9, z, '#bfe3ff')
-      for (const s of [-1, 1]) solid.blob(0.12, x - 0.6 + s * 0.35, by + 1.7, z + s * 0.1, '#d5ecff')
+      // 背上的出水孔；喷出的水柱和水珠交给 WhaleFountain 单独建
+      solid.blob(0.13, x - 0.6, by + 0.84, z, shadeHex(body, 0.6), undefined, 0.4)
+      c.blowhole = v(x - 0.6, by + 0.85, z)
+      // 鲸鱼身体两侧各一盏暖光小灯
+      for (const s of [-1, 1]) glow.blob(0.09, x + 0.3, by + 0.3, z + s * 1.1, '#ffd89a')
       break
     }
     case 'lanterns': {
@@ -773,6 +791,8 @@ function buildOrnament(c: Ctx, deck: Deck): number {
       solid.segment(v(x - 0.45, y + 2.5, z), v(x - 0.5, y + 2.9, z), 0.06, '#4f9d4a')
       solid.blob(0.2, x - 0.7, y + 3.0, z, '#6cc05a', { rotZ: 0.6 }, 0.45)
       solid.blob(0.2, x - 0.3, y + 3.0, z, '#6cc05a', { rotZ: -0.6 }, 0.45)
+      // 豆芽旁一盏小灯
+      glow.blob(0.08, x - 0.5, y + 3.3, z, '#ffe6a8')
       break
     }
     case 'rocket': {
@@ -803,6 +823,10 @@ function buildOrnament(c: Ctx, deck: Deck): number {
       for (const [dx, dy, dz, r] of puffs.slice(0, 5)) {
         solid.custom('ico1', ico1, r * 0.55, r * 0.4, r * 0.55, x + 2.8 + dx * 0.55, y + 2.9 + dy * 0.55, z - 1 + dz, '#f2f7ff', { rotY: rng() * Math.PI })
       }
+      // 云朵下方一圈暖光小灯，像路灯照云底
+      for (const [dx, , dz] of [[0, 0, 0], [1.2, 0, 0.2], [-1.2, 0, 0], [0, 0, 0.8], [0, 0, -0.8]]) {
+        glow.blob(0.09, x + dx, y + 1.35, z + dz, '#ffe6a8')
+      }
       break
     }
     case 'car': {
@@ -825,11 +849,15 @@ function buildOrnament(c: Ctx, deck: Deck): number {
       const colors = ['#ffd800', '#ffaf00', '#ff8205', '#fa500f', '#e10500']
       const heights = [2.4, 2.0, 1.6, 1.2, 0.8]
       colors.forEach((color, i) => solid.boxOn(0.7, heights[i], 0.7, x - 1.6 + i * 0.8, y, z, color))
+      // 像素柱顶端各一盏小灯，营造霓虹效果
+      colors.forEach((_, i) => glow.blob(0.08, x - 1.6 + i * 0.8, y + heights[i] + 0.15, z, '#ffe8b0'))
       break
     }
     case 'loop': {
       solid.boxOn(3.2, 0.3, 1.0, x, y, z, '#d7dde6')
       for (const s of [-1, 1]) solid.custom('torus', ring, 0.85, 1.1, 0.85, x + s * 0.8, y + 1.55, z, '#2d8cf0', { rotY: s * 0.25 })
+      // 两个圆环之间一盏小灯
+      glow.blob(0.09, x, y + 1.6, z, '#ffd89a')
       break
     }
     case 'scroll': {
@@ -843,6 +871,8 @@ function buildOrnament(c: Ctx, deck: Deck): number {
         for (let i = 0; i < 4; i += 1) solid.box(0.75, 0.01, 0.04, 0, 0.035, -0.45 + i * 0.3, '#8a8176', { parent: page })
       }
       solid.box(0.08, 0.02, 0.6, 0.05, 0.05, 0.9, '#d6333a', { parent })
+      // 书页上方打一圈阅读灯
+      for (const s of [-1, 1]) glow.blob(0.08, x + s * 0.9, y + 1.0, z + 0.3, '#ffe6a8')
       break
     }
     case 'tower': {
@@ -859,6 +889,11 @@ function buildOrnament(c: Ctx, deck: Deck): number {
       solid.cylinder(1.05, 1.05, 1.8, x, tankY, z, '#8a5a3c', 12)
       for (const dy of [0.4, 1.3]) solid.cylinder(1.08, 1.08, 0.06, x, tankY + dy, z, METAL, 12)
       solid.cylinder(0, 1.2, 0.7, x, tankY + 1.8, z, '#5a3f2c', 12)
+      // 水塔顶一圈暖光灯，照亮木桶
+      for (let i = 0; i < 4; i += 1) {
+        const angle = (i / 4) * Math.PI * 2
+        glow.blob(0.08, x + Math.cos(angle) * 1.15, tankY + 1.4, z + Math.sin(angle) * 1.15, '#ffd89a')
+      }
       break
     }
   }
@@ -966,6 +1001,10 @@ export function buildShop(shop: LabShop, index: number, slot: LotSlot, buckets: 
   root.name = `shop:${shop.id}`
   const rocket = c.rocketPad ? new RocketRig(c.rocketPad, `rocket:${shop.id}`) : null
   if (rocket) root.add(rocket.group)
+  const smoke = c.chimneyMouth ? new ChimneySmoke(c.chimneyMouth, `smoke:${shop.id}`) : null
+  if (smoke) root.add(smoke.mesh)
+  const fountain = c.blowhole ? new WhaleFountain(c.blowhole, `fountain:${shop.id}`) : null
+  if (fountain) root.add(fountain.group)
   const logo = getLoadedLogo(shop.id)
   const textures: Texture[] = []
   const geometries: BufferGeometry[] = []
@@ -1038,6 +1077,8 @@ export function buildShop(shop: LabShop, index: number, slot: LotSlot, buckets: 
     ],
     glowMaterials,
     rocket,
+    smoke,
+    fountain,
     refreshPlaque(next) {
       const text = formatTokens(next.weekTokens)
       if (text === plaqueText) return
@@ -1052,6 +1093,8 @@ export function buildShop(shop: LabShop, index: number, slot: LotSlot, buckets: 
     },
     dispose() {
       rocket?.dispose()
+      smoke?.dispose()
+      fountain?.dispose()
       for (const texture of textures) texture.dispose()
       for (const { material } of glowMaterials) material.dispose()
       for (const geometry of geometries) geometry.dispose()

@@ -711,7 +711,11 @@ export class TownScene {
       const visible = this.visibility()
       this.crowd?.update(dt, visible)
       this.traffic?.update(dt, visible)
-      for (const shop of this.shops) shop.rocket?.update(dt)
+      for (const shop of this.shops) {
+        shop.rocket?.update(dt)
+        shop.smoke?.update(dt)
+        shop.fountain?.update(dt)
+      }
       this.updateBubble(dt)
     }
     this.updateTween(dt)

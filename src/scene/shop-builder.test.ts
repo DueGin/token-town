@@ -26,10 +26,10 @@ vi.mock('@/scene/textures', async () => {
 
 const { buildShop } = await import('@/scene/shop-builder')
 
-function shop(weekTokens: number): LabShop {
+function shop(weekTokens: number, id = 'openai'): LabShop {
   const model = { model: 'gpt-5', weekTokens, isNew: false }
   return {
-    id: 'openai',
+    id,
     name: 'OpenAI',
     color: '#10a37f',
     monogram: 'O',
@@ -62,5 +62,39 @@ describe('BuiltShop.refreshPlaque', () => {
 
     built.dispose()
     expect(textures.plaques[1].disposed).toBe(true)
+  })
+})
+
+describe('BuiltShop.smoke', () => {
+  it('只有带烟囱的 Anthropic 店屋顶冒烟，烟挂在门店节点下', () => {
+    const buckets = () => ({ solid: new GeometryBucket(), windows: new GeometryBucket(), glow: new GeometryBucket() })
+    const anthropic = buildShop(shop(1_000_000, 'anthropic'), 0, shopSlot(0), buckets(), { anisotropy: 1 })
+    expect(anthropic.smoke).not.toBeNull()
+    expect(anthropic.root.children).toContain(anthropic.smoke!.mesh)
+    expect(anthropic.smoke!.puffCount).toBeGreaterThan(0)
+    // 出烟口在楼顶之上
+    expect(anthropic.smoke!.mesh.position.y).toBeGreaterThan(anthropic.plan.height)
+
+    const openai = buildShop(shop(1_000_000), 1, shopSlot(1), buckets(), { anisotropy: 1 })
+    expect(openai.smoke).toBeNull()
+    anthropic.dispose()
+    openai.dispose()
+  })
+})
+
+describe('BuiltShop.fountain', () => {
+  it('只有屋顶趴着鲸鱼的 DeepSeek 店会喷水，喷泉挂在门店节点下', () => {
+    const buckets = () => ({ solid: new GeometryBucket(), windows: new GeometryBucket(), glow: new GeometryBucket() })
+    const deepseek = buildShop(shop(1_000_000, 'deepseek'), 0, shopSlot(0), buckets(), { anisotropy: 1 })
+    expect(deepseek.fountain).not.toBeNull()
+    expect(deepseek.root.children).toContain(deepseek.fountain!.group)
+    expect(deepseek.fountain!.dropCount).toBeGreaterThan(0)
+    // 出水孔在拱顶之上
+    expect(deepseek.fountain!.group.position.y).toBeGreaterThan(deepseek.plan.height)
+
+    const anthropic = buildShop(shop(1_000_000, 'anthropic'), 1, shopSlot(1), buckets(), { anisotropy: 1 })
+    expect(anthropic.fountain).toBeNull()
+    deepseek.dispose()
+    anthropic.dispose()
   })
 })
