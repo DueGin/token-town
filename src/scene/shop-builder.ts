@@ -12,9 +12,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
-  OctahedronGeometry,
   PlaneGeometry,
-  SphereGeometry,
   TorusGeometry,
   Vector3,
   type Texture,
@@ -39,6 +37,8 @@ import {
 } from '@/scene/props'
 import { RocketRig } from '@/scene/rocket'
 import { WhaleFountain } from '@/scene/whale-fountain'
+import { MoonRig } from '@/scene/moon-rig'
+import { DOME_H, DOME_R, ObservatoryDome } from '@/scene/observatory-dome'
 import { planShop, Polyline, queueLayout, type QueueLayout, type ShopPlan } from '@/scene/shop-layout'
 import { createGraffitiTexture, createPlaqueTexture, createSignTexture } from '@/scene/textures'
 
@@ -78,6 +78,10 @@ export interface BuiltShop {
   smoke: ChimneySmoke | null
   /** 屋顶鲸鱼背上的喷泉（DeepSeek 店），其他店为 null。 */
   fountain: WhaleFountain | null
+  /** 天文台屋顶摇摆的新月、闪烁的星星和流星（Kimi 店），其他店为 null。 */
+  moon: MoonRig | null
+  /** 天文台会转动的穹顶和俯仰的望远镜（Kimi 店），其他店为 null。 */
+  dome: ObservatoryDome | null
   /** 实时数据更新时重画门旁挂牌上的本周用量；文字没变就不重画。 */
   refreshPlaque(shop: LabShop): void
   dispose(): void
@@ -131,13 +135,10 @@ const ico1 = () => new IcosahedronGeometry(1, 1)
 /** 直边在上、圆弧朝下的半圆片，厚度沿 z。 */
 const halfDisc = () =>
   new CylinderGeometry(1, 1, 1, 10, 1, false, 0, Math.PI).rotateX(Math.PI / 2).rotateZ(-Math.PI / 2)
-const hemisphere = () => new SphereGeometry(1, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2)
 /** 沿 x 的半圆筒，向 +y 拱起。 */
 const barrelVault = () => new CylinderGeometry(1, 1, 1, 16, 1, false, 0, Math.PI).rotateZ(Math.PI / 2)
-const crescent = () => new TorusGeometry(1, 0.28, 8, 24, Math.PI * 1.25)
 const ring = () => new TorusGeometry(1, 0.22, 10, 28)
 const capsule = () => new CapsuleGeometry(0.8, 1.0, 6, 12)
-const diamond = () => new OctahedronGeometry(1, 0)
 
 /** 单位四坡顶：底面 [-0.5, 0.5]²，高 1，屋脊沿 x。 */
 function hipRoof(): BufferGeometry {
@@ -183,6 +184,10 @@ interface Ctx extends TownBuckets {
   chimneyMouth?: Vector3
   /** 鲸背上的出水孔；只有 whale 装饰会设置。 */
   blowhole?: Vector3
+  /** 新月灯杆底部；只有 moon 装饰会设置。 */
+  moonBase?: Vector3
+  /** 天文台穹顶底面中心；只有 dome 屋顶会设置。 */
+  domeBase?: Vector3
   style: LabStyle
   plan: ShopPlan
   ox: number
@@ -644,15 +649,11 @@ function buildRoof(c: Ctx): Deck {
       flatRoof(c, false)
       const dx = bx - 0.8
       const dz = cz - 0.6
-      const baseY = top + 1.2
-      solid.cylinder(2.6, 2.6, 1.2, dx, top, dz, style.trim, 16)
-      solid.custom('hemi', hemisphere, 2.7, 2.4, 2.7, dx, baseY, dz, style.roofColor)
-      // 观测缝：沿正面经线的一条深色带
-      const slitAt = (phi: number) => v(dx, baseY + 2.4 * Math.cos(phi) * 0.99, dz + 2.7 * Math.sin(phi) * 0.99)
-      for (let i = 0; i < 6; i += 1) solid.segment(slitAt(0.02 + i * 0.22), slitAt(0.02 + (i + 1) * 0.22), 0.36, '#1a1d26')
-      // 伸出观测缝的望远镜
-      solid.cylinder(0.2, 0.26, 1.8, dx, baseY + 1.3, dz + 1.3, '#d8dce4', 10, { rotX: 0.75 })
-      return { x: bx + 2.6, z: cz + 1.6, y: top + 0.06, peak: baseY + 2.4 }
+      // 鼓身是静态几何；会转的穹顶、观测缝和望远镜交给 ObservatoryDome
+      solid.cylinder(DOME_R + 0.1, DOME_R + 0.15, 0.9, dx, top, dz, style.trim, 16)
+      solid.cylinder(DOME_R + 0.22, DOME_R + 0.22, 0.12, dx, top + 0.9, dz, shadeHex(style.trim, 0.8), 16)
+      c.domeBase = v(dx, top + 1.02, dz)
+      return { x: bx + 2.6, z: cz + 1.6, y: top + 0.06, peak: top + 1.02 + DOME_H }
     }
 
     case 'barrel': {
@@ -704,12 +705,6 @@ function buildOrnament(c: Ctx, deck: Deck): number {
       solid.boxOn(1.1, 0.18, 1.1, cx, top + h, cz2, '#5a3a2c')
       // 烟囱是静态的；冒出的烟会缓缓上升飘散，交给 ChimneySmoke 单独建
       c.chimneyMouth = v(cx, top + h + 0.18, cz2)
-      // 烟囱四角各一盏暖光小灯，夜晚照亮屋顶
-      for (const sx of [-1, 1]) {
-        for (const sz of [-1, 1]) {
-          glow.blob(0.08, cx + sx * 0.6, top + h + 0.2, cz2 + sz * 0.6, '#ffd89a')
-        }
-      }
       break
     }
     case 'blocks': {
@@ -753,13 +748,8 @@ function buildOrnament(c: Ctx, deck: Deck): number {
     }
     case 'moon': {
       solid.cylinder(0.06, 0.08, 2.6, x, y, z, METAL, 6)
-      glow.custom('crescent', crescent, 1.1, 1.1, 1.1, x, y + 3.4, z, '#ffe9a8', { rotZ: Math.PI * 0.35 })
-      const stars: [number, number, number, number][] = [
-        [1.2, 4.6, 0, 0.2],
-        [-1.3, 4.2, 0.2, 0.16],
-        [0.6, 5.3, -0.1, 0.13],
-      ]
-      for (const [dx, dy, dz, s] of stars) glow.custom('diamond', diamond, s, s * 1.3, 0.06, x + dx, y + dy, z + dz, '#fff3c4')
+      // 灯杆是静态的；新月、星星和流星交给 MoonRig 单独建
+      c.moonBase = v(x, y, z)
       break
     }
     case 'dish': {
@@ -806,6 +796,13 @@ function buildOrnament(c: Ctx, deck: Deck): number {
       for (let i = 0; i < 4; i += 1) solid.segment(v(tx - 0.15, y + 0.6 + i * 1.2, tz), v(tx + 0.15, y + 1.2 + i * 1.2, tz), 0.05, '#6b6f75')
       solid.segment(v(tx, y + 3.8, tz), v(x + 0.45, y + 3.8, z - 0.3), 0.08, '#6b6f75')
       glow.blob(0.1, tx, y + 5.6, tz, '#ff3b3b')
+      // 发射台边缘一圈冷白地灯，塔架中段再挂两盏，夜里照亮火箭
+      for (let i = 0; i < 8; i += 1) {
+        const a = (i / 8) * Math.PI * 2
+        glow.blob(0.07, x + Math.cos(a) * 1.45, y + 0.32, z + Math.sin(a) * 1.45, '#dfe8ff')
+      }
+      glow.blob(0.08, tx - 0.2, y + 2.2, tz, '#dfe8ff')
+      glow.blob(0.08, tx - 0.2, y + 3.6, tz, '#dfe8ff')
       break
     }
     case 'cloud': {
@@ -1005,6 +1002,10 @@ export function buildShop(shop: LabShop, index: number, slot: LotSlot, buckets: 
   if (smoke) root.add(smoke.mesh)
   const fountain = c.blowhole ? new WhaleFountain(c.blowhole, `fountain:${shop.id}`) : null
   if (fountain) root.add(fountain.group)
+  const moon = c.moonBase ? new MoonRig(c.moonBase, `moon:${shop.id}`) : null
+  if (moon) root.add(moon.group)
+  const dome = c.domeBase ? new ObservatoryDome(c.domeBase, style.roofColor, style.accent, `dome:${shop.id}`) : null
+  if (dome) root.add(dome.group)
   const logo = getLoadedLogo(shop.id)
   const textures: Texture[] = []
   const geometries: BufferGeometry[] = []
@@ -1079,6 +1080,8 @@ export function buildShop(shop: LabShop, index: number, slot: LotSlot, buckets: 
     rocket,
     smoke,
     fountain,
+    moon,
+    dome,
     refreshPlaque(next) {
       const text = formatTokens(next.weekTokens)
       if (text === plaqueText) return
@@ -1095,6 +1098,8 @@ export function buildShop(shop: LabShop, index: number, slot: LotSlot, buckets: 
       rocket?.dispose()
       smoke?.dispose()
       fountain?.dispose()
+      moon?.dispose()
+      dome?.dispose()
       for (const texture of textures) texture.dispose()
       for (const { material } of glowMaterials) material.dispose()
       for (const geometry of geometries) geometry.dispose()

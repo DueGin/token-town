@@ -572,6 +572,8 @@ export class TownScene {
     this.traffic?.setNight(t.night)
     for (const shop of this.shops) {
       for (const { material, weight } of shop.glowMaterials) material.emissiveIntensity = t.signGlow * weight
+      shop.moon?.setNight(t.night)
+      shop.dome?.setNight(t.night)
     }
     this.applyLampIntensity()
     this.requestRender()
@@ -715,6 +717,8 @@ export class TownScene {
         shop.rocket?.update(dt)
         shop.smoke?.update(dt)
         shop.fountain?.update(dt)
+        shop.moon?.update(dt)
+        shop.dome?.update(dt)
       }
       this.updateBubble(dt)
     }
